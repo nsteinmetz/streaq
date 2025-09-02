@@ -43,7 +43,7 @@ The ``task`` decorator has several optional arguments that can be used to custom
 
 - ``expire``: time after which to dequeue the task, if None will never be dequeued
 - ``max_tries``: maximum number of attempts before giving up if task is retried; defaults to 3
-- ``name``: use a custom name for the task instead of the function name
+- ``name``: use a custom name for the task instead of the function name (see :ref:`Custom name for tasks <custom-name-for-task>` for related impacts and behavior)
 - ``silent``: whether to silence task startup/shutdown logs and task success/failure tracking; defaults to False
 - ``timeout``: amount of time to run the task before raising ``TimeoutError``; ``None`` (the default) means never timeout
 - ``ttl``: amount of time to store task result in Redis; defaults to 5 minutes. ``None`` means never delete results, ``0`` means never store results
@@ -76,6 +76,10 @@ Tasks can depend on other tasks, meaning they won't be enqueued until their depe
    task1 = await sleeper.enqueue(1)
    task2 = await sleeper.enqueue(2).start(after=task1.id)
    task3 = await sleeper.enqueue(3).start(after=[task1.id, task2.id])
+
+
+.. note::
+   ``Task.enqueue()`` is actually a sync function that returns a ``Task`` object. Since ``Task`` is awaitable, it gets enqueued when awaited. Therefore, you should always use await even though ``Task.enqueue()`` is sync, unless you're enqueuing by batch (see below).
 
 Task priorities
 ---------------
@@ -324,3 +328,29 @@ This is useful for ETL pipelines or similar tasks, where each task builds upon t
 
 .. note::
    For pipelined tasks, positional arguments must all come from the previous task (tuple outputs will be unpacked), and any additional arguments can be passed as kwargs to ``then()``.
+
+.. _custom-name-for-task:
+
+Custom name for tasks
+---------------------
+
+As soon as you provide a custom name to a function using the ``name`` argument and use ``enqueue_unsafe()``, you must call the task with the customized name and no longer with the function name. 
+
+.. code-block:: python
+
+   @worker.task(name="custom_sleeper")
+   async def sleeper(time: int) -> int:
+       await asyncio.sleep(time)
+       return time
+
+   # No longer correct with enqueue_unsafe()
+   await worker.enqueue_safe("sleeper", 3)
+   
+   # Correct with enqueue_unsafe()
+   await worker.enqueue_safe("custom_sleeper", 3)
+   
+   # Correct with recommended enqueue()
+   await sleeper.enqueue(3)
+
+In all cases, on logs side, custom name will be used over function name.
+   
